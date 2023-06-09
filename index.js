@@ -36,7 +36,6 @@ async function run() {
     // users API's
     app.post("/users", async (req, res) => {
       const user = req.body?.email;
-      console.log(40, req.body);
       const filter = { user };
       const existUser = await userCollection.findOne(filter);
 
