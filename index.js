@@ -1,5 +1,6 @@
 const express = require("express");
 const cors = require("cors");
+const jwt = require("jsonwebtoken");
 const { MongoClient, ServerApiVersion } = require("mongodb");
 require("dotenv").config();
 const app = express();
@@ -36,15 +37,25 @@ async function run() {
     // users API's
     app.post("/users", async (req, res) => {
       const user = req.body?.email;
+
+      // get token by signing jwt.
+      const token = jwt.sign(user, process.env.SECRET_ACCESS_TOKEN);
       const filter = { user };
       const existUser = await userCollection.findOne(filter);
 
-      if (existUser) return res.send(existUser);
+      if (existUser) {
+        existUser.token = token;
+        return res.send(existUser);
+      }
       const result = await userCollection.insertOne({ user, role: "student" });
       result.user = user;
       result.role = "student";
+      result.token = token;
       res.send(result);
     });
+
+    // Instructors API's
+    // app.
   } finally {
     // Ensures that the client will close when you finish/error
     // await client.close();
