@@ -62,6 +62,14 @@ async function run() {
       const result = await instructorCollection.find({}).toArray();
       res.send(result);
     });
+
+    // instructors classes API's
+    app.get("/classes", async (req, res) => {
+      const result = await instructorCollection
+        .find({ status: "approved" })
+        .toArray();
+      res.send(result);
+    });
   } finally {
     // Ensures that the client will close when you finish/error
     // await client.close();
