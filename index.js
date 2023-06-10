@@ -33,6 +33,9 @@ async function run() {
     //   "Pinged your deployment. You successfully connected to MongoDB!"
     // );
     const userCollection = client.db("SummerCamp").collection("Users");
+    const instructorCollection = client
+      .db("SummerCamp")
+      .collection("Instructors");
 
     // users API's
     app.post("/users", async (req, res) => {
@@ -55,7 +58,10 @@ async function run() {
     });
 
     // Instructors API's
-    // app.
+    app.get("/instructors", async (req, res) => {
+      const result = await instructorCollection.find({}).toArray();
+      res.send(result);
+    });
   } finally {
     // Ensures that the client will close when you finish/error
     // await client.close();
