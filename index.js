@@ -84,21 +84,73 @@ async function run() {
     // instructors classes API's
     app.get("/classes", async (req, res) => {
       const result = await instructorCollection
-        .find({ status: "approved" })
+        .find({ "classes.status": "approved" }, { "classes.$": 1 })
         .toArray();
-      res.send(result);
+
+      // filter all approved classes
+      const len = result.length;
+      let allClasses = [];
+      result.forEach((data) => {
+        let len = data.classes?.length || 0;
+        for (let i = 0; i < len; i++) {
+          if (data.classes[i].status === "approved") {
+            const approvedClass = {
+              ...data.classes[i],
+              instructor: data?.name,
+              instructor_email: data?.email,
+            };
+            allClasses.push(approvedClass);
+          }
+        }
+      });
+      res.send(allClasses);
     });
 
     // Student's API
     app.patch("/student", async (req, res) => {
       const email = req.query?.email;
-      console.log(95, email);
+      const classDetails = req.body;
+      console.log(96, "api hitted", classDetails);
       const existInCollection = await studentCollection.findOne({ email });
-      console.log(96, existInCollection);
       if (!existInCollection) {
-        const user = await userCollection.findOne({ user: email });
-        console.log(99, user);
+        const { instructor, instructor_email, class_name, price, class_image } =
+          classDetails;
+        const newUser = {
+          email,
+          selectedClasses: [
+            {
+              instructor,
+              instructor_email,
+              class_name,
+              class_image,
+              price,
+            },
+          ],
+        };
+        console.log(112, newUser);
+        const result = await studentCollection.insertOne(newUser);
+        res.send(result);
       }
+
+      // data insertion
+      const filter = { email };
+      // this option instructs the method to create a document if no documents match the filter
+      const options = { upsert: true };
+      const updatedSelectedClasses = {
+        $set: {
+          selectedClasses: [...existInCollection.selectedClasses, classDetails],
+        },
+      };
+      const result = await studentCollection.updateOne(
+        filter,
+        updatedSelectedClasses,
+        options
+      );
+      console.log(existInCollection);
+      if (result?.modifiedCount > 0) {
+        const filter = {};
+      }
+      res.send(result);
     });
   } finally {
     // Ensures that the client will close when you finish/error
