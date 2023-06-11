@@ -13,16 +13,16 @@ app.use(express.json());
 const verifyJWT = async (req, res, next) => {
   const authorization = req.headers?.authorization;
   if (!authorization) {
-    res.status(401).send({ error: true, message: "Unauthorized entry" });
+    return res.status(401).send({ error: true, message: "Unauthorized entry" });
   }
   const token = authorization.split(" ")[1];
   if (!token) {
-    res.status(401).send({ error: true, message: "Unauthorized entry" });
+    return res.status(401).send({ error: true, message: "Unauthorized entry" });
   }
 
   jwt.verify(token, process.env.SECRET_ACCESS_TOKEN, (err, decoded) => {
     if (err) {
-      res.status(403).send({ error: true, message: "Forbidden Access" });
+      return res.status(403).send({ error: true, message: "Forbidden Access" });
     }
     req.decodedEmail = decoded;
     next();
@@ -105,14 +105,23 @@ async function run() {
       });
       res.send(allClasses);
     });
-
     // Student's API
-    app.patch("/student", async (req, res) => {
+
+    app.get("/selectedClasses", verifyJWT, async (req, res) => {
+      const email = req.query.email;
+      if (email !== req.decodedEmail) {
+        return res.status(401).send({ error: true, message: "Invalid Email" });
+      }
+      const result = await studentCollection.findOne({ email });
+      res.send(result);
+    });
+
+    app.patch("/selectedClasses", async (req, res) => {
       const email = req.query?.email;
       const classDetails = req.body;
       console.log(96, "api hitted", classDetails);
-      const existInCollection = await studentCollection.findOne({ email });
-      if (!existInCollection) {
+      const userDetails = await studentCollection.findOne({ email });
+      if (!userDetails) {
         const { instructor, instructor_email, class_name, price, class_image } =
           classDetails;
         const newUser = {
@@ -127,18 +136,27 @@ async function run() {
             },
           ],
         };
-        console.log(112, newUser);
         const result = await studentCollection.insertOne(newUser);
-        res.send(result);
+        return res.send(result);
       }
 
+      // filter whether the selected class already exist in students mySelectedClasses object
+      const existInSelectedClasses = userDetails.selectedClasses.find((el) => {
+        return (
+          el?.class_name === classDetails?.class_name &&
+          el?.instructor == classDetails?.instructor
+        );
+      });
+      console.log(140, existInSelectedClasses);
+      if (existInSelectedClasses) {
+        return res.send({ alreadySelected: true });
+      }
       // data insertion
       const filter = { email };
-      // this option instructs the method to create a document if no documents match the filter
       const options = { upsert: true };
       const updatedSelectedClasses = {
         $set: {
-          selectedClasses: [...existInCollection.selectedClasses, classDetails],
+          selectedClasses: [...userDetails.selectedClasses, classDetails],
         },
       };
       const result = await studentCollection.updateOne(
@@ -146,10 +164,6 @@ async function run() {
         updatedSelectedClasses,
         options
       );
-      console.log(existInCollection);
-      if (result?.modifiedCount > 0) {
-        const filter = {};
-      }
       res.send(result);
     });
   } finally {
