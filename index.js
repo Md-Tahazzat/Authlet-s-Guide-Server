@@ -1,7 +1,7 @@
 const express = require("express");
 const cors = require("cors");
 const jwt = require("jsonwebtoken");
-const { MongoClient, ServerApiVersion } = require("mongodb");
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 require("dotenv").config();
 const app = express();
 const port = process.env.PORT || 5000;
@@ -10,7 +10,24 @@ const port = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
-// mongoDB pass =   user = SummerCamp
+const verifyJWT = async (req, res, next) => {
+  const authorization = req.headers?.authorization;
+  if (!authorization) {
+    res.status(401).send({ error: true, message: "Unauthorized entry" });
+  }
+  const token = authorization.split(" ")[1];
+  if (!token) {
+    res.status(401).send({ error: true, message: "Unauthorized entry" });
+  }
+
+  jwt.verify(token, process.env.SECRET_ACCESS_TOKEN, (err, decoded) => {
+    if (err) {
+      res.status(403).send({ error: true, message: "Forbidden Access" });
+    }
+    req.decodedEmail = decoded;
+    next();
+  });
+};
 
 const uri = `mongodb+srv://${process.env.MONGO_USER}:${process.env.MONGO_PASS}@cluster0.v7xfdwv.mongodb.net/?retryWrites=true&w=majority`;
 
@@ -33,6 +50,7 @@ async function run() {
     //   "Pinged your deployment. You successfully connected to MongoDB!"
     // );
     const userCollection = client.db("SummerCamp").collection("Users");
+    const studentCollection = client.db("SummerCamp").collection("Students");
     const instructorCollection = client
       .db("SummerCamp")
       .collection("Instructors");
@@ -69,6 +87,18 @@ async function run() {
         .find({ status: "approved" })
         .toArray();
       res.send(result);
+    });
+
+    // Student's API
+    app.patch("/student", async (req, res) => {
+      const email = req.query?.email;
+      console.log(95, email);
+      const existInCollection = await studentCollection.findOne({ email });
+      console.log(96, existInCollection);
+      if (!existInCollection) {
+        const user = await userCollection.findOne({ user: email });
+        console.log(99, user);
+      }
     });
   } finally {
     // Ensures that the client will close when you finish/error
