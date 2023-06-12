@@ -119,7 +119,6 @@ async function run() {
     app.patch("/selectedClasses", async (req, res) => {
       const email = req.query?.email;
       const classDetails = req.body;
-      console.log(96, "api hitted", classDetails);
       const userDetails = await studentCollection.findOne({ email });
       if (!userDetails) {
         const { instructor, instructor_email, class_name, price, class_image } =
@@ -164,6 +163,34 @@ async function run() {
         updatedSelectedClasses,
         options
       );
+      res.send(result);
+    });
+
+    app.put("/removeSelectedClass", verifyJWT, async (req, res) => {
+      const email = req.query.email;
+      const classDetails = req.body;
+      console.log(172, classDetails);
+      if (email !== req.decodedEmail) {
+        return res.status(401).send({ error: true, message: "Invalid Email" });
+      }
+      const filter = {
+        email,
+      };
+      const studentDetails = await studentCollection.findOne(filter);
+      const updatedSelectedClasses = studentDetails?.selectedClasses.filter(
+        (singleClass) =>
+          singleClass.class_name !== classDetails?.class_name &&
+          singleClass?.instructor_email !== classDetails?.instructor_email
+      );
+      const updatedDoc = {
+        $set: {
+          selectedClasses: updatedSelectedClasses,
+        },
+      };
+
+      const result = await studentCollection.updateOne(filter, updatedDoc, {
+        upsert: true,
+      });
       res.send(result);
     });
   } finally {
