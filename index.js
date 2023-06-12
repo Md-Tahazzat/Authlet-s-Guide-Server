@@ -42,13 +42,6 @@ const client = new MongoClient(uri, {
 
 async function run() {
   try {
-    // Connect the client to the server	(optional starting in v4.7)
-    // await client.connect();
-    // Send a ping to confirm a successful connection
-    // await client.db("admin").command({ ping: 1 });
-    // console.log(
-    //   "Pinged your deployment. You successfully connected to MongoDB!"
-    // );
     const userCollection = client.db("SummerCamp").collection("Users");
     const studentCollection = client.db("SummerCamp").collection("Students");
     const instructorCollection = client
@@ -78,6 +71,27 @@ async function run() {
       const result = await userCollection.insertOne(userInfo);
       result.role = "student";
       result.token = token;
+      res.send(result);
+    });
+
+    // Home page classes api
+    app.get("/popularClasses", async (req, res) => {
+      const pipeline = [
+        { $unwind: "$classes" }, // Unwind the classes array
+        { $sort: { "classes.student": 1 } }, // Sort based on the student's value in ascending order
+        { $group: { _id: null, classes: { $push: "$classes" } } }, // Group the classes objects into one array
+      ];
+      const result = await instructorCollection.aggregate(pipeline).toArray();
+      const sortedClass = result[0].classes.sort(
+        (a, b) => b.students - a.students
+      );
+      sortedClass.length = 6;
+      res.send(sortedClass);
+    });
+    // Home page classes api
+    app.get("/popularInstructor", async (req, res) => {
+      const result = await instructorCollection.find().toArray();
+      result.length = 6;
       res.send(result);
     });
 
@@ -192,14 +206,35 @@ async function run() {
         return res.send(deletedResult);
       }
     });
+    app.post("/addFeedback", verifyJWT, async (req, res) => {
+      const email = req.query.email;
+      if (email !== req.decodedEmail) {
+        return res.status(401).send({ error: true, message: "Invalid Email" });
+      }
+      const feedbackDetails = req.body;
+
+      const filter = { email: feedbackDetails.instructor_email };
+      const updatedDoc = {
+        $set: {
+          "classes.$[elem].feedback": feedbackDetails.feedback,
+        },
+      };
+      const options = {
+        arrayFilters: [{ "elem.name": feedbackDetails.name }],
+      };
+      const result = await instructorCollection.updateOne(
+        filter,
+        updatedDoc,
+        options
+      );
+      res.send(result);
+    });
     app.put("/allClasses", verifyJWT, async (req, res) => {
       const email = req.query.email;
-      const updatedUser = req.body;
       if (email !== req.decodedEmail) {
         return res.status(401).send({ error: true, message: "Invalid Email" });
       }
       const classDetails = req.body;
-      console.log(202, classDetails);
 
       const filter = { email: classDetails.instructor_email };
       const updatedDoc = {
