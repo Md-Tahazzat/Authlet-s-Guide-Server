@@ -192,6 +192,31 @@ async function run() {
         return res.send(deletedResult);
       }
     });
+    app.put("/allClasses", verifyJWT, async (req, res) => {
+      const email = req.query.email;
+      const updatedUser = req.body;
+      if (email !== req.decodedEmail) {
+        return res.status(401).send({ error: true, message: "Invalid Email" });
+      }
+      const classDetails = req.body;
+      console.log(202, classDetails);
+
+      const filter = { email: classDetails.instructor_email };
+      const updatedDoc = {
+        $set: {
+          "classes.$[elem].status": classDetails.status,
+        },
+      };
+      const options = {
+        arrayFilters: [{ "elem.name": classDetails.name }],
+      };
+      const result = await instructorCollection.updateOne(
+        filter,
+        updatedDoc,
+        options
+      );
+      res.send(result);
+    });
 
     app.get("/allClasses", verifyJWT, async (req, res) => {
       const email = req.query.email;
@@ -200,21 +225,16 @@ async function run() {
         return res.status(401).send({ error: true, message: "Invalid Email" });
       }
 
-      const allInstructors = await instructorCollection
-        .find({ "classes.status": "pending" })
-        .toArray();
+      const allInstructors = await instructorCollection.find().toArray();
 
       const allClasses = [];
 
       allInstructors.forEach((singleInstructor) => {
         const len = singleInstructor.classes.length;
         for (let i = 0; i < len; i++) {
-          if (singleInstructor.classes[i].status === "pending") {
-            singleInstructor.classes[i].instructor = singleInstructor.name;
-            singleInstructor.classes[i].instructor_email =
-              singleInstructor.email;
-            allClasses.push(singleInstructor.classes[i]);
-          }
+          singleInstructor.classes[i].instructor = singleInstructor.name;
+          singleInstructor.classes[i].instructor_email = singleInstructor.email;
+          allClasses.push(singleInstructor.classes[i]);
         }
       });
 
