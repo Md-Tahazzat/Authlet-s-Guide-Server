@@ -117,6 +117,28 @@ async function run() {
       res.send(result);
     });
 
+    app.put("/users", verifyJWT, async (req, res) => {
+      const email = req.query.email;
+      const updatedUser = req.body;
+      console.log(123, updatedUser);
+      if (email !== req.decodedEmail) {
+        return res.status(401).send({ error: true, message: "Invalid Email" });
+      }
+
+      const filter = { user: updatedUser.user };
+      const updatedDoc = {
+        $set: { role: updatedUser.role },
+      };
+      const options = { upsert: true };
+
+      const result = await userCollection.updateOne(
+        filter,
+        updatedDoc,
+        options
+      );
+      res.send(result);
+    });
+
     // Student's API
 
     app.get("/selectedClasses", verifyJWT, async (req, res) => {
