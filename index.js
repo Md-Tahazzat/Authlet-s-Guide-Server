@@ -105,6 +105,18 @@ async function run() {
       });
       res.send(allClasses);
     });
+
+    // Admin API's
+    app.get("/users", verifyJWT, async (req, res) => {
+      const email = req.query.email;
+      if (email !== req.decodedEmail) {
+        return res.status(401).send({ error: true, message: "Invalid Email" });
+      }
+
+      const result = await userCollection.find({}).toArray();
+      res.send(result);
+    });
+
     // Student's API
 
     app.get("/selectedClasses", verifyJWT, async (req, res) => {
@@ -146,7 +158,6 @@ async function run() {
           el?.instructor == classDetails?.instructor
         );
       });
-      console.log(140, existInSelectedClasses);
       if (existInSelectedClasses) {
         return res.send({ alreadySelected: true });
       }
@@ -169,7 +180,6 @@ async function run() {
     app.put("/removeSelectedClass", verifyJWT, async (req, res) => {
       const email = req.query.email;
       const classDetails = req.body;
-      console.log(172, classDetails);
       if (email !== req.decodedEmail) {
         return res.status(401).send({ error: true, message: "Invalid Email" });
       }
