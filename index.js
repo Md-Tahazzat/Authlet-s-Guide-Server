@@ -88,6 +88,30 @@ async function run() {
       res.send(result);
     });
 
+    app.post("/addClass", verifyJWT, async (req, res) => {
+      const email = req.query.email;
+      if (email !== req.decodedEmail) {
+        return res.status(401).send({ error: true, message: "Invalid Email" });
+      }
+
+      const { available_seats, image, name, price } = req.body;
+      const newClass = {
+        name,
+        image,
+        available_seats,
+        price,
+        students: 0,
+        student_list: [],
+        status: "pending",
+      };
+      const result = await instructorCollection.updateOne(
+        { email },
+        { $push: { classes: newClass } },
+        { upsert: true }
+      );
+      res.send(result);
+    });
+
     // instructors classes API's
     app.get("/classes", async (req, res) => {
       const result = await instructorCollection
