@@ -57,19 +57,26 @@ async function run() {
 
     // users API's
     app.post("/users", async (req, res) => {
-      const user = req.body?.email;
+      const user = req.body.user;
+      console.log(61, user);
 
       // get token by signing jwt.
-      const token = jwt.sign(user, process.env.SECRET_ACCESS_TOKEN);
-      const filter = { user };
+      const token = jwt.sign(user.email, process.env.SECRET_ACCESS_TOKEN);
+      const filter = { user: user.email };
       const existUser = await userCollection.findOne(filter);
 
       if (existUser) {
         existUser.token = token;
         return res.send(existUser);
       }
-      const result = await userCollection.insertOne({ user, role: "student" });
-      result.user = user;
+
+      const userInfo = {
+        user: user.email,
+        role: "student",
+        name: user.name,
+        image: user.image,
+      };
+      const result = await userCollection.insertOne(userInfo);
       result.role = "student";
       result.token = token;
       res.send(result);
@@ -120,7 +127,6 @@ async function run() {
     app.put("/users", verifyJWT, async (req, res) => {
       const email = req.query.email;
       const updatedUser = req.body;
-      console.log(123, updatedUser);
       if (email !== req.decodedEmail) {
         return res.status(401).send({ error: true, message: "Invalid Email" });
       }
@@ -136,7 +142,24 @@ async function run() {
         updatedDoc,
         options
       );
-      res.send(result);
+
+      if (result.modifiedCount > 0 && updatedUser.role === "instructor") {
+        const newInstructor = {
+          name: updatedUser.name,
+          email: updatedUser.user,
+          image: updatedUser?.image,
+          classes: [],
+        };
+        const insertedResult = await instructorCollection.insertOne(
+          newInstructor
+        );
+        return res.send(insertedResult);
+      } else {
+        const deletedResult = await instructorCollection.deleteOne({
+          email: updatedUser.user,
+        });
+        return res.send(deletedResult);
+      }
     });
 
     // Student's API
