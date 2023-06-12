@@ -58,7 +58,6 @@ async function run() {
     // users API's
     app.post("/users", async (req, res) => {
       const user = req.body.user;
-      console.log(61, user);
 
       // get token by signing jwt.
       const token = jwt.sign(user.email, process.env.SECRET_ACCESS_TOKEN);
@@ -136,6 +135,14 @@ async function run() {
       });
       res.send(allClasses);
     });
+    app.get("/myClasses", verifyJWT, async (req, res) => {
+      const email = req.query.email;
+      if (email !== req.decodedEmail) {
+        return res.status(401).send({ error: true, message: "Invalid Email" });
+      }
+      const result = await instructorCollection.find({ email }).toArray();
+      res.send(result);
+    });
 
     // Admin API's
     app.get("/users", verifyJWT, async (req, res) => {
@@ -184,6 +191,34 @@ async function run() {
         });
         return res.send(deletedResult);
       }
+    });
+
+    app.get("/allClasses", verifyJWT, async (req, res) => {
+      const email = req.query.email;
+      const updatedUser = req.body;
+      if (email !== req.decodedEmail) {
+        return res.status(401).send({ error: true, message: "Invalid Email" });
+      }
+
+      const allInstructors = await instructorCollection
+        .find({ "classes.status": "pending" })
+        .toArray();
+
+      const allClasses = [];
+
+      allInstructors.forEach((singleInstructor) => {
+        const len = singleInstructor.classes.length;
+        for (let i = 0; i < len; i++) {
+          if (singleInstructor.classes[i].status === "pending") {
+            singleInstructor.classes[i].instructor = singleInstructor.name;
+            singleInstructor.classes[i].instructor_email =
+              singleInstructor.email;
+            allClasses.push(singleInstructor.classes[i]);
+          }
+        }
+      });
+
+      res.send(allClasses);
     });
 
     // Student's API
