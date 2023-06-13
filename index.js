@@ -1,6 +1,9 @@
 const express = require("express");
 const cors = require("cors");
 const jwt = require("jsonwebtoken");
+const stripe = require("stripe")(
+  "sk_test_51NIOs3A4HBh5KLUQ6vJ5SBthO99cvw4sRkAEYJScGfxvZE7wtZs7EyRYtJjrcett0i63IqqT9NcDWOGnXy0BlXLD00DlWRXk9C"
+);
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 require("dotenv").config();
 const app = express();
@@ -40,10 +43,30 @@ const client = new MongoClient(uri, {
   },
 });
 
+// create payment key;
+app.post("/create-payment-intent", verifyJWT, async (req, res) => {
+  const email = req.query.email;
+  if (email !== req.decodedEmail) {
+    return res.status(401).send({ error: true, message: "Invalid Email" });
+  }
+
+  const { price } = req.body;
+  const amount = price * 100;
+  const paymentIntent = await stripe.paymentIntents.create({
+    amount: amount,
+    currency: "usd",
+    payment_method_types: ["card"],
+  });
+  res.send({
+    clientSecret: paymentIntent.client_secret,
+  });
+});
+
 async function run() {
   try {
     const userCollection = client.db("SummerCamp").collection("Users");
     const studentCollection = client.db("SummerCamp").collection("Students");
+    const paymentCollection = client.db("SummerCamp").collection("payments");
     const instructorCollection = client
       .db("SummerCamp")
       .collection("Instructors");
@@ -51,7 +74,6 @@ async function run() {
     // users API's
     app.post("/users", async (req, res) => {
       const user = req.body.user;
-
       // get token by signing jwt.
       const token = jwt.sign(user.email, process.env.SECRET_ACCESS_TOKEN);
       const filter = { user: user.email };
@@ -93,6 +115,83 @@ async function run() {
       const result = await instructorCollection.find().toArray();
       result.length = 6;
       res.send(result);
+    });
+
+    // payment api
+    app.post("/payments", async (req, res) => {
+      const paymentDetails = req.body;
+      const userInfo = await paymentCollection.findOne({
+        user: paymentDetails.user,
+      });
+      if (!userInfo) {
+        const userPaymentDoc = {
+          user: paymentDetails.user,
+          payments: [
+            {
+              date: paymentDetails.date,
+              class_name: paymentDetails.class_name,
+              instructor_email: paymentDetails.instructor_email,
+              payment_id: paymentDetails.payment_id,
+              payment_method: paymentDetails.payment_method,
+            },
+          ],
+        };
+        const result = await paymentCollection.insertOne(userPaymentDoc);
+      } else {
+        const result = await paymentCollection.updateOne(
+          { user: paymentDetails.user },
+          {
+            $push: {
+              payments: {
+                date: paymentDetails.date,
+                class_name: paymentDetails.class_name,
+                instructor_email: paymentDetails.instructor_email,
+                payment_id: paymentDetails.payment_id,
+                payment_method: paymentDetails.payment_method,
+              },
+            },
+          }
+        );
+      }
+
+      const updatedSelectedClass = await studentCollection.updateOne(
+        { email: paymentDetails.user },
+        {
+          $pull: {
+            selectedClasses: { class_name: paymentDetails.class_name },
+          },
+        }
+      );
+      const updatedEnrollClasses = await studentCollection.updateOne(
+        { email: paymentDetails.user },
+        {
+          $push: {
+            enrolledClasses: {
+              instructor: paymentDetails.instructor,
+              instructor_email: paymentDetails.instructor_email,
+              class_name: paymentDetails.class_name,
+            },
+          },
+        },
+        { upsert: true }
+      );
+      const updateInstructor = await instructorCollection.updateOne(
+        {
+          email: paymentDetails.instructor_email,
+          classes: { $elemMatch: { name: paymentDetails.class_name } },
+        },
+        {
+          $inc: {
+            "classes.$.available_seats": -1,
+            "classes.$.students": 1,
+          },
+          $push: {
+            "classes.$.student_list": { email: paymentDetails.user },
+          },
+        },
+        { upsert: true }
+      );
+      res.send({ updated: true });
     });
 
     // Instructors API's
@@ -285,6 +384,31 @@ async function run() {
       }
       const result = await studentCollection.findOne({ email });
       res.send(result);
+    });
+
+    app.get("/paymentDetails", verifyJWT, async (req, res) => {
+      const email = req.query.email;
+      if (email !== req.decodedEmail) {
+        return res.status(401).send({ error: true, message: "Invalid Email" });
+      }
+      const result = await paymentCollection.findOne({ user: email });
+      if (result) {
+        const len = result.payments.length;
+        const sortedData = [];
+        for (let i = len - 1; i >= 0; i--) {
+          sortedData.push(result.payments[i]);
+        }
+        res.send(sortedData);
+      }
+    });
+
+    app.get("/enrolledClasses", verifyJWT, async (req, res) => {
+      const email = req.query.email;
+      if (email !== req.decodedEmail) {
+        return res.status(401).send({ error: true, message: "Invalid Email" });
+      }
+      const result = await studentCollection.findOne({ email });
+      res.send(result.enrolledClasses);
     });
 
     app.patch("/selectedClasses", async (req, res) => {
