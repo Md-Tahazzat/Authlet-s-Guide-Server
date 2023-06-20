@@ -13,6 +13,7 @@ const port = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
+// verify valid token
 const verifyJWT = async (req, res, next) => {
   const authorization = req.headers?.authorization;
   if (!authorization) {
@@ -32,6 +33,14 @@ const verifyJWT = async (req, res, next) => {
   });
 };
 
+const verifyEmail = (req, res, next) => {
+  const email = req.query.email;
+  if (email !== req.decodedEmail) {
+    return res.status(401).send({ error: true, message: "Invalid Email" });
+  }
+  next();
+};
+
 const uri = `mongodb+srv://${process.env.MONGO_USER}:${process.env.MONGO_PASS}@cluster0.v7xfdwv.mongodb.net/?retryWrites=true&w=majority`;
 
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
@@ -44,11 +53,8 @@ const client = new MongoClient(uri, {
 });
 
 // create payment key;
-app.post("/create-payment-intent", verifyJWT, async (req, res) => {
+app.post("/create-payment-intent", verifyJWT, verifyEmail, async (req, res) => {
   const email = req.query.email;
-  if (email !== req.decodedEmail) {
-    return res.status(401).send({ error: true, message: "Invalid Email" });
-  }
 
   const { price } = req.body;
   const amount = price * 100;
@@ -65,7 +71,13 @@ app.post("/create-payment-intent", verifyJWT, async (req, res) => {
 async function run() {
   try {
     const userCollection = client.db("SummerCamp").collection("Users");
-    const studentCollection = client.db("SummerCamp").collection("Students");
+    const selectedClasses = client
+      .db("SummerCamp")
+      .collection("selectedClasses");
+    const enrolledClasses = client
+      .db("SummerCamp")
+      .collection("enrolledClasses");
+    const classCollection = client.db("SummerCamp").collection("classes");
     const paymentCollection = client.db("SummerCamp").collection("payments");
     const instructorCollection = client
       .db("SummerCamp")
@@ -98,114 +110,109 @@ async function run() {
 
     // Home page classes api
     app.get("/popularClasses", async (req, res) => {
-      const pipeline = [
-        { $unwind: "$classes" }, // Unwind the classes array
-        { $sort: { "classes.student": 1 } }, // Sort based on the student's value in ascending order
-        { $group: { _id: null, classes: { $push: "$classes" } } }, // Group the classes objects into one array
-      ];
-      const result = await instructorCollection.aggregate(pipeline).toArray();
-      const sortedClass = result[0].classes.sort(
-        (a, b) => b.students - a.students
-      );
-      sortedClass.length = 6;
-      res.send(sortedClass);
+      const result = await classCollection
+        .find()
+        .sort({ students: -1 })
+        .limit(6)
+        .toArray();
+      res.send(result);
     });
     // Home page classes api
     app.get("/popularInstructor", async (req, res) => {
-      const result = await instructorCollection.find().toArray();
-      result.length = 6;
+      const result = await userCollection
+        .find({ role: "instructor" })
+        .limit(6)
+        .toArray();
       res.send(result);
     });
 
     // payment api
-    app.post("/payments", async (req, res) => {
-      const paymentDetails = req.body;
-      const userInfo = await paymentCollection.findOne({
-        user: paymentDetails.user,
-      });
-      if (!userInfo) {
-        const userPaymentDoc = {
-          user: paymentDetails.user,
-          payments: [
-            {
-              date: paymentDetails.date,
-              class_name: paymentDetails.class_name,
-              instructor_email: paymentDetails.instructor_email,
-              payment_id: paymentDetails.payment_id,
-              payment_method: paymentDetails.payment_method,
-            },
-          ],
-        };
-        const result = await paymentCollection.insertOne(userPaymentDoc);
-      } else {
-        const result = await paymentCollection.updateOne(
-          { user: paymentDetails.user },
-          {
-            $push: {
-              payments: {
-                date: paymentDetails.date,
-                class_name: paymentDetails.class_name,
-                instructor_email: paymentDetails.instructor_email,
-                payment_id: paymentDetails.payment_id,
-                payment_method: paymentDetails.payment_method,
-              },
-            },
-          }
-        );
-      }
+    // app.post("/payments", async (req, res) => {
+    //   const paymentDetails = req.body;
+    //   const userInfo = await paymentCollection.findOne({
+    //     user: paymentDetails.user,
+    //   });
+    //   if (!userInfo) {
+    //     const userPaymentDoc = {
+    //       user: paymentDetails.user,
+    //       payments: [
+    //         {
+    //           date: paymentDetails.date,
+    //           class_name: paymentDetails.class_name,
+    //           instructor_email: paymentDetails.instructor_email,
+    //           payment_id: paymentDetails.payment_id,
+    //           payment_method: paymentDetails.payment_method,
+    //         },
+    //       ],
+    //     };
+    //     const result = await paymentCollection.insertOne(userPaymentDoc);
+    //   } else {
+    //     const result = await paymentCollection.updateOne(
+    //       { user: paymentDetails.user },
+    //       {
+    //         $push: {
+    //           payments: {
+    //             date: paymentDetails.date,
+    //             class_name: paymentDetails.class_name,
+    //             instructor_email: paymentDetails.instructor_email,
+    //             payment_id: paymentDetails.payment_id,
+    //             payment_method: paymentDetails.payment_method,
+    //           },
+    //         },
+    //       }
+    //     );
+    //   }
 
-      const updatedSelectedClass = await studentCollection.updateOne(
-        { email: paymentDetails.user },
-        {
-          $pull: {
-            selectedClasses: { class_name: paymentDetails.class_name },
-          },
-        }
-      );
-      const updatedEnrollClasses = await studentCollection.updateOne(
-        { email: paymentDetails.user },
-        {
-          $push: {
-            enrolledClasses: {
-              instructor: paymentDetails.instructor,
-              instructor_email: paymentDetails.instructor_email,
-              class_name: paymentDetails.class_name,
-            },
-          },
-        },
-        { upsert: true }
-      );
-      const updateInstructor = await instructorCollection.updateOne(
-        {
-          email: paymentDetails.instructor_email,
-          classes: { $elemMatch: { name: paymentDetails.class_name } },
-        },
-        {
-          $inc: {
-            "classes.$.available_seats": -1,
-            "classes.$.students": 1,
-          },
-          $push: {
-            "classes.$.student_list": { email: paymentDetails.user },
-          },
-        },
-        { upsert: true }
-      );
-      res.send({ updated: true });
-    });
+    //   const updatedSelectedClass = await studentCollection.updateOne(
+    //     { email: paymentDetails.user },
+    //     {
+    //       $pull: {
+    //         selectedClasses: { class_name: paymentDetails.class_name },
+    //       },
+    //     }
+    //   );
+    //   const updatedEnrollClasses = await studentCollection.updateOne(
+    //     { email: paymentDetails.user },
+    //     {
+    //       $push: {
+    //         enrolledClasses: {
+    //           instructor: paymentDetails.instructor,
+    //           instructor_email: paymentDetails.instructor_email,
+    //           class_name: paymentDetails.class_name,
+    //         },
+    //       },
+    //     },
+    //     { upsert: true }
+    //   );
+    //   const updateInstructor = await instructorCollection.updateOne(
+    //     {
+    //       email: paymentDetails.instructor_email,
+    //       classes: { $elemMatch: { name: paymentDetails.class_name } },
+    //     },
+    //     {
+    //       $inc: {
+    //         "classes.$.available_seats": -1,
+    //         "classes.$.students": 1,
+    //       },
+    //       $push: {
+    //         "classes.$.student_list": { email: paymentDetails.user },
+    //       },
+    //     },
+    //     { upsert: true }
+    //   );
+    //   res.send({ updated: true });
+    // });
 
     // Instructors API's
     app.get("/instructors", async (req, res) => {
-      const result = await instructorCollection.find({}).toArray();
+      const result = await userCollection
+        .find({ role: "instructor" })
+        .toArray();
       res.send(result);
     });
 
     app.post("/addClass", verifyJWT, async (req, res) => {
       const email = req.query.email;
-      if (email !== req.decodedEmail) {
-        return res.status(401).send({ error: true, message: "Invalid Email" });
-      }
-
       const { available_seats, image, name, price } = req.body;
       const newClass = {
         name,
@@ -226,27 +233,10 @@ async function run() {
 
     // instructors classes API's
     app.get("/classes", async (req, res) => {
-      const result = await instructorCollection
-        .find({ "classes.status": "approved" }, { "classes.$": 1 })
+      const result = await classCollection
+        .find({ status: "approved" })
         .toArray();
-
-      // filter all approved classes
-      const len = result.length;
-      let allClasses = [];
-      result.forEach((data) => {
-        let len = data.classes?.length || 0;
-        for (let i = 0; i < len; i++) {
-          if (data.classes[i].status === "approved") {
-            const approvedClass = {
-              ...data.classes[i],
-              instructor: data?.name,
-              instructor_email: data?.email,
-            };
-            allClasses.push(approvedClass);
-          }
-        }
-      });
-      res.send(allClasses);
+      res.send(result);
     });
     app.get("/myClasses", verifyJWT, async (req, res) => {
       const email = req.query.email;
@@ -379,9 +369,6 @@ async function run() {
 
     app.get("/selectedClasses", verifyJWT, async (req, res) => {
       const email = req.query.email;
-      if (email !== req.decodedEmail) {
-        return res.status(401).send({ error: true, message: "Invalid Email" });
-      }
       const result = await studentCollection.findOne({ email });
       res.send(result);
     });
@@ -411,53 +398,34 @@ async function run() {
       res.send(result.enrolledClasses);
     });
 
-    app.patch("/selectedClasses", async (req, res) => {
-      const email = req.query?.email;
-      const classDetails = req.body;
-      const userDetails = await studentCollection.findOne({ email });
-      if (!userDetails) {
-        const { instructor, instructor_email, class_name, price, class_image } =
-          classDetails;
-        const newUser = {
-          email,
-          selectedClasses: [
-            {
-              instructor,
-              instructor_email,
-              class_name,
-              class_image,
-              price,
-            },
-          ],
+    app.put("/selectedClasses", async (req, res) => {
+      const {
+        user,
+        instructor,
+        instructor_email,
+        class_name,
+        class_image,
+        price,
+        class_id,
+      } = req.body;
+      const existedInSelectedClasses = await selectedClasses.findOne({
+        class_id,
+        user,
+      });
+      if (!existedInSelectedClasses) {
+        const classDetails = {
+          user,
+          instructor,
+          instructor_email,
+          class_id,
+          class_name,
+          class_image,
+          price,
         };
-        const result = await studentCollection.insertOne(newUser);
+        const result = await selectedClasses.insertOne(classDetails);
         return res.send(result);
       }
-
-      // filter whether the selected class already exist in students mySelectedClasses object
-      const existInSelectedClasses = userDetails.selectedClasses.find((el) => {
-        return (
-          el?.class_name === classDetails?.class_name &&
-          el?.instructor == classDetails?.instructor
-        );
-      });
-      if (existInSelectedClasses) {
-        return res.send({ alreadySelected: true });
-      }
-      // data insertion
-      const filter = { email };
-      const options = { upsert: true };
-      const updatedSelectedClasses = {
-        $set: {
-          selectedClasses: [...userDetails.selectedClasses, classDetails],
-        },
-      };
-      const result = await studentCollection.updateOne(
-        filter,
-        updatedSelectedClasses,
-        options
-      );
-      res.send(result);
+      res.send({ alreadySelected: true });
     });
 
     app.put("/removeSelectedClass", verifyJWT, async (req, res) => {
